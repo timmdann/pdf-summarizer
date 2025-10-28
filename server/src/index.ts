@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
-import cors from "cors";
 import "dotenv/config";
+import cors from "cors";
 import { summarizeWithGemini } from "./geminiClient";
 
 const pdfParse = require("pdf-parse") as (
@@ -18,14 +18,14 @@ const allowedOrigins = (process.env.CORS_ORIGIN ?? "")
 
 app.use(
   cors({
-    origin: allowedOrigins.length ? allowedOrigins : true,
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type"],
+    credentials: false,
   })
 );
-app.options("*", cors());
 
-app.get("/api/health", (_req: express.Request, res: express.Response) => {
+app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
@@ -50,56 +50,52 @@ const upload = multer({
   },
 });
 
-app.post(
-  "/api/summarize",
-  upload.single("file"),
-  async (req: express.Request, res: express.Response) => {
-    if (!req.file) {
-      return res.status(400).json({
-        code: "VALIDATION_ERROR",
-        message: "file is required and must be a PDF",
-      });
-    }
-
-    const buf = req.file.buffer;
-    const isPdf = buf && buf.slice(0, 5).toString("ascii") === "%PDF-";
-    if (!isPdf) {
-      return res.status(415).json({
-        code: "UNSUPPORTED_MEDIA_TYPE",
-        message: "File is not a valid PDF",
-      });
-    }
-
-    try {
-      const parsed = await pdfParse(buf);
-      const text = String(parsed.text || "").trim();
-      if (text.length === 0) {
-        return res
-          .status(400)
-          .json({ code: "EMPTY_PDF", message: "No extractable text in PDF" });
-      }
-
-      const t0 = Date.now();
-      const summary = await summarizeWithGemini(text);
-      const durationMs = Date.now() - t0;
-
-      return res.json({
-        summary,
-        model: process.env.GEMINI_MODEL ?? "gemini-1.5-flash",
-        inputChars: text.length,
-        durationMs,
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      if (/abort/i.test(msg) || /timeout/i.test(msg)) {
-        return res
-          .status(504)
-          .json({ code: "AI_TIMEOUT", message: "Upstream model timeout" });
-      }
-      return res.status(502).json({ code: "AI_UPSTREAM_ERROR", message: msg });
-    }
+app.post("/api/summarize", upload.single("file"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "file is required and must be a PDF",
+    });
   }
-);
+
+  const buf = req.file.buffer;
+  const isPdf = buf && buf.slice(0, 5).toString("ascii") === "%PDF-";
+  if (!isPdf) {
+    return res.status(415).json({
+      code: "UNSUPPORTED_MEDIA_TYPE",
+      message: "File is not a valid PDF",
+    });
+  }
+
+  try {
+    const parsed = await pdfParse(buf);
+    const text = String(parsed.text || "").trim();
+    if (text.length === 0) {
+      return res
+        .status(400)
+        .json({ code: "EMPTY_PDF", message: "No extractable text in PDF" });
+    }
+
+    const t0 = Date.now();
+    const summary = await summarizeWithGemini(text);
+    const durationMs = Date.now() - t0;
+
+    return res.json({
+      summary,
+      model: process.env.GEMINI_MODEL ?? "gemini-1.5-flash",
+      inputChars: text.length,
+      durationMs,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    if (/abort/i.test(msg) || /timeout/i.test(msg)) {
+      return res
+        .status(504)
+        .json({ code: "AI_TIMEOUT", message: "Upstream model timeout" });
+    }
+    return res.status(502).json({ code: "AI_UPSTREAM_ERROR", message: msg });
+  }
+});
 
 app.use(
   (
