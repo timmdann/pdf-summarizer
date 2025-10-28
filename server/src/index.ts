@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import cors from "cors";
 import "dotenv/config";
 import { summarizeWithGemini } from "./geminiClient";
 
@@ -9,6 +10,20 @@ const pdfParse = require("pdf-parse") as (
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+const allowedOrigins = (process.env.CORS_ORIGIN ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: allowedOrigins.length ? allowedOrigins : true,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type"],
+  })
+);
+app.options("*", cors());
 
 app.get("/api/health", (_req: express.Request, res: express.Response) => {
   res.json({ ok: true });

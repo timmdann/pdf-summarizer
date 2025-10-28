@@ -38,6 +38,7 @@ function isSummarizeResponse(x: unknown): x is SummarizeResponse {
 }
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const API_BASE = (import.meta.env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
@@ -52,7 +53,9 @@ export default function App() {
   > | null>(null);
 
   function validatePDF(f: File): string | null {
-    if (f.type !== "application/pdf") return "Only PDF files are allowed";
+    if (f.type !== "application/pdf" && f.type !== "application/octet-stream") {
+      return "Only PDF files are allowed";
+    }
     if (f.size > MAX_SIZE_BYTES) return "File is too large (max 10MB)";
     return null;
   }
@@ -76,6 +79,8 @@ export default function App() {
   }
 
   async function readJsonSafe(res: Response): Promise<unknown | null> {
+    const ct = res.headers.get("content-type") || "";
+    if (!/application\/json/i.test(ct)) return null;
     try {
       return await res.json();
     } catch {
@@ -96,7 +101,9 @@ export default function App() {
     fd.append("file", file);
 
     try {
-      const res = await fetch("/api/summarize", { method: "POST", body: fd });
+      const url = `${API_BASE ? API_BASE : ""}/api/summarize`;
+
+      const res = await fetch(url, { method: "POST", body: fd });
       const data = await readJsonSafe(res);
 
       if (!res.ok) {
