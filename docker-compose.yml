@@ -1,0 +1,17 @@
+services:
+  server:
+    build: ./server
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - GEMINI_TIMEOUT_MS=${GEMINI_TIMEOUT_MS:-15000}
+      - PORT=3000
+    restart: unless-stopped
+
+  client:
+    build: ./client
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+    restart: unless-stopped
