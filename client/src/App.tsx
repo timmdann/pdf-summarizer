@@ -5,7 +5,6 @@ import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -13,6 +12,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { FileDropzone } from "@/components/ui/file-dropzone";
 import { Copy, Check } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 type BackendError = {
   code: string;
@@ -214,7 +214,13 @@ export default function App() {
                 )}
               </CardHeader>
               <CardContent>
-                <div className="whitespace-pre-wrap text-sm">{result}</div>
+                <ReactMarkdown
+                  className="text-sm prose prose-sm max-w-none
+                    prose-ul:my-1 prose-li:my-0.5
+                    prose-p:my-1 prose-strong:font-semibold"
+                >
+                  {result}
+                </ReactMarkdown>
               </CardContent>
               {status === "done" && meta && (
                 <CardFooter className="flex flex-col">
