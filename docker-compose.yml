@@ -7,11 +7,18 @@ services:
       - GEMINI_TIMEOUT_MS=${GEMINI_TIMEOUT_MS:-15000}
       - PORT=3000
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   client:
     build: ./client
     ports:
       - "80:80"
     depends_on:
-      - server
+      server:
+        condition: service_healthy
     restart: unless-stopped
