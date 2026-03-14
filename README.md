@@ -4,10 +4,12 @@ Web application that uploads a PDF and returns an AI-generated summary using Goo
 
 ## Features
 
-- Drag & drop or click-to-browse PDF upload (max 10 MB)
+- Drag & drop or click-to-browse PDF upload (max 10 MB) with animated visual feedback
 - Streaming response — text appears word by word as Gemini generates it
+- Structured summary — Overview, Key Points, and Notable Details sections
 - Markdown rendering — bold, lists, and headings rendered properly
 - Copy to clipboard button
+- Rate limiting — 20 requests per 15 minutes per IP
 - Docker Compose setup for one-command deployment
 
 ## Tech stack
@@ -65,16 +67,26 @@ Create a `.env` file in the project root (see `.env.example`):
 
 ```
 pdf-summarizer/
-├── client/               # React frontend
+├── client/                      # React frontend
 │   ├── src/
-│   │   ├── components/ui/
-│   │   └── App.tsx
-│   ├── nginx.conf        # Production nginx config
+│   │   ├── components/
+│   │   │   ├── ui/              # Base UI components
+│   │   │   └── SummaryCard.tsx  # Result card with copy button
+│   │   ├── hooks/
+│   │   │   └── useSummarize.ts  # Fetch + SSE streaming logic
+│   │   └── App.tsx              # Page layout and form
+│   ├── nginx.conf               # Production nginx config
 │   └── Dockerfile
-├── server/               # Express backend
+├── server/                      # Express backend
 │   ├── src/
-│   │   ├── index.ts      # API routes
-│   │   └── geminiClient.ts
+│   │   ├── middleware/
+│   │   │   ├── cors.ts          # CORS config
+│   │   │   ├── rateLimiter.ts   # Rate limiting
+│   │   │   └── errorHandler.ts  # Global error handler
+│   │   ├── routes/
+│   │   │   └── summarize.ts     # POST /api/summarize
+│   │   ├── geminiClient.ts      # Gemini API + streaming
+│   │   └── index.ts             # App setup and entry point
 │   └── Dockerfile
 ├── docker-compose.yml
 └── .env.example
@@ -84,4 +96,8 @@ pdf-summarizer/
 
 ### `POST /api/summarize`
 
-Accepts a multipart form with a `file` field (PDF). Returns a Server-Sent Events stream.
+Accepts a multipart form with a `file` field (PDF, max 10 MB). Returns a Server-Sent Events stream.
+
+### `GET /api/health`
+
+Returns `{ ok: true }`. Used by Docker Compose health check.
