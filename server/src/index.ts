@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import "dotenv/config";
 import cors from "cors";
-import { summarizeWithGemini } from "./geminiClient";
+import { summarizeWithGeminiStream } from "./geminiClient";
 
 const pdfParse = require("pdf-parse") as (
   data: Buffer
@@ -67,33 +67,46 @@ app.post("/api/summarize", upload.single("file"), async (req, res) => {
     });
   }
 
+  let text: string;
   try {
     const parsed = await pdfParse(buf);
-    const text = String(parsed.text || "").trim();
-    if (text.length === 0) {
-      return res
-        .status(400)
-        .json({ code: "EMPTY_PDF", message: "No extractable text in PDF" });
-    }
-
-    const t0 = Date.now();
-    const summary = await summarizeWithGemini(text);
-    const durationMs = Date.now() - t0;
-
-    return res.json({
-      summary,
-      model: process.env.GEMINI_MODEL ?? "gemini-1.5-flash",
-      inputChars: text.length,
-      durationMs,
-    });
+    text = String(parsed.text || "").trim();
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
-    if (/abort/i.test(msg) || /timeout/i.test(msg)) {
-      return res
-        .status(504)
-        .json({ code: "AI_TIMEOUT", message: "Upstream model timeout" });
+    return res.status(502).json({ code: "PARSE_ERROR", message: msg });
+  }
+
+  if (text.length === 0) {
+    return res
+      .status(400)
+      .json({ code: "EMPTY_PDF", message: "No extractable text in PDF" });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const t0 = Date.now();
+  try {
+    for await (const chunk of summarizeWithGeminiStream(text)) {
+      res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
     }
-    return res.status(502).json({ code: "AI_UPSTREAM_ERROR", message: msg });
+    const durationMs = Date.now() - t0;
+    res.write(
+      `data: ${JSON.stringify({
+        done: true,
+        model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
+        inputChars: text.length,
+        durationMs,
+      })}\n\n`
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    const code = /timeout|abort/i.test(msg) ? "AI_TIMEOUT" : "AI_UPSTREAM_ERROR";
+    res.write(`data: ${JSON.stringify({ error: true, code, message: msg })}\n\n`);
+  } finally {
+    res.end();
   }
 });
 

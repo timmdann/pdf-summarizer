@@ -13,38 +13,19 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { FileDropzone } from "@/components/ui/file-dropzone";
 
-type SummarizeResponse = {
-  summary: string;
-  model: string;
-  inputChars: number;
-  durationMs: number;
-};
-
 type BackendError = {
   code: string;
   message: string;
 };
-
-function isSummarizeResponse(x: unknown): x is SummarizeResponse {
-  return (
-    typeof x === "object" &&
-    x !== null &&
-    "summary" in x &&
-    typeof (x as { summary: unknown }).summary === "string" &&
-    "model" in x &&
-    "inputChars" in x &&
-    "durationMs" in x
-  );
-}
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 const API_BASE = (import.meta.env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">(
-    "idle"
-  );
+  const [status, setStatus] = useState<
+    "idle" | "loading" | "streaming" | "done" | "error"
+  >("idle");
   const [result, setResult] = useState<string>("");
   const [err, setErr] = useState<string>("");
   const [meta, setMeta] = useState<Pick<
@@ -102,26 +83,56 @@ export default function App() {
 
     try {
       const url = `${API_BASE ? API_BASE : ""}/api/summarize`;
-
       const res = await fetch(url, { method: "POST", body: fd });
-      const data = await readJsonSafe(res);
 
       if (!res.ok) {
+        const data = await readJsonSafe(res);
         const be = data as BackendError | null;
         throw new Error(be?.message ?? `HTTP ${res.status}`);
       }
 
-      if (!isSummarizeResponse(data)) {
-        throw new Error("Unexpected response shape");
-      }
+      if (!res.body) throw new Error("No response body");
 
-      setResult(data.summary);
-      setMeta({
-        model: data.model,
-        durationMs: data.durationMs,
-        inputChars: data.inputChars,
-      });
-      setStatus("done");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      setStatus("streaming");
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr) continue;
+
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(jsonStr) as Record<string, unknown>;
+          } catch {
+            continue;
+          }
+
+          if (typeof event.chunk === "string") {
+            setResult((prev) => prev + event.chunk);
+          } else if (event.done) {
+            setMeta({
+              model: String(event.model ?? ""),
+              durationMs: Number(event.durationMs ?? 0),
+              inputChars: Number(event.inputChars ?? 0),
+            });
+            setStatus("done");
+          } else if (event.error) {
+            throw new Error(String(event.message ?? "Stream error"));
+          }
+        }
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setErr(message);
@@ -147,7 +158,7 @@ export default function App() {
             <FileDropzone
               id="pdf"
               accept="application/pdf"
-              disabled={status === "loading"}
+              disabled={status === "loading" || status === "streaming"}
               onSelect={(f) => pick(f)}
             />
 
@@ -159,7 +170,7 @@ export default function App() {
             )}
           </div>
 
-          {status === "loading" ? (
+          {status === "loading" || status === "streaming" ? (
             <Spinner />
           ) : (
             <Button
@@ -172,7 +183,7 @@ export default function App() {
             </Button>
           )}
 
-          {status === "done" && meta && (
+          {(status === "streaming" || status === "done") && result && (
             <Card>
               <CardHeader>
                 <CardTitle>Result</CardTitle>
@@ -181,21 +192,23 @@ export default function App() {
               <CardContent>
                 <div className="whitespace-pre-wrap text-sm">{result}</div>
               </CardContent>
-              <CardFooter className="flex flex-col">
-                <span>
-                  Model: <span className="font-medium">{meta.model}</span>
-                </span>
-                <span>
-                  Time:{" "}
-                  <span className="font-medium">{meta.durationMs} ms</span>
-                </span>
-                <span>
-                  Input text:{" "}
-                  <span className="font-medium">
-                    {meta.inputChars.toLocaleString()} characters
+              {status === "done" && meta && (
+                <CardFooter className="flex flex-col">
+                  <span>
+                    Model: <span className="font-medium">{meta.model}</span>
                   </span>
-                </span>
-              </CardFooter>
+                  <span>
+                    Time:{" "}
+                    <span className="font-medium">{meta.durationMs} ms</span>
+                  </span>
+                  <span>
+                    Input text:{" "}
+                    <span className="font-medium">
+                      {meta.inputChars.toLocaleString()} characters
+                    </span>
+                  </span>
+                </CardFooter>
+              )}
             </Card>
           )}
 
