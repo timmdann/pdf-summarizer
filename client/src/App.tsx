@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import Spinner from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { FileDropzone } from "@/components/ui/file-dropzone";
+import { Copy, Check } from "lucide-react";
 
 type BackendError = {
   code: string;
@@ -28,10 +29,12 @@ export default function App() {
   >("idle");
   const [result, setResult] = useState<string>("");
   const [err, setErr] = useState<string>("");
-  const [meta, setMeta] = useState<Pick<
-    SummarizeResponse,
-    "model" | "durationMs" | "inputChars"
-  > | null>(null);
+  const [meta, setMeta] = useState<{
+    model: string;
+    durationMs: number;
+    inputChars: number;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   function validatePDF(f: File): string | null {
     if (f.type !== "application/pdf" && f.type !== "application/octet-stream") {
@@ -58,6 +61,13 @@ export default function App() {
     setMeta(null);
     setStatus("idle");
   }
+
+  const copyToClipboard = useCallback(async () => {
+    if (!result) return;
+    await navigator.clipboard.writeText(result);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [result]);
 
   async function readJsonSafe(res: Response): Promise<unknown | null> {
     const ct = res.headers.get("content-type") || "";
@@ -185,9 +195,23 @@ export default function App() {
 
           {(status === "streaming" || status === "done") && result && (
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Result</CardTitle>
-                <CardDescription></CardDescription>
+                {status === "done" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={copyToClipboard}
+                    className="text-muted-foreground"
+                  >
+                    {copied ? (
+                      <><Check className="h-4 w-4" /> Copied!</>
+                    ) : (
+                      <><Copy className="h-4 w-4" /> Copy</>
+                    )}
+                  </Button>
+                )}
               </CardHeader>
               <CardContent>
                 <div className="whitespace-pre-wrap text-sm">{result}</div>
